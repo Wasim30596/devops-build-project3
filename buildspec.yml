@@ -1,0 +1,67 @@
+version: 0.2
+
+env:
+  variables:
+    AWS_DEFAULT_REGION: ap-south-1
+    IMAGE_REPO_NAME: brain-tasks-app
+    EKS_CLUSTER_NAME: brain-tasks-cluster
+
+phases:
+
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+
+      - AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+      - REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME
+
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $REPOSITORY_URI
+
+      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+
+      - IMAGE_TAG=${COMMIT_HASH:=latest}
+
+  build:
+    commands:
+      - echo Building the Docker image...
+
+      - docker build -t $IMAGE_REPO_NAME:$IMAGE_TAG .
+
+      - docker tag $IMAGE_REPO_NAME:$IMAGE_TAG $REPOSITORY_URI:$IMAGE_TAG
+
+      - docker tag $IMAGE_REPO_NAME:$IMAGE_TAG $REPOSITORY_URI:latest
+
+  post_build:
+    commands:
+      - echo Pushing Docker images...
+
+      - docker push $REPOSITORY_URI:$IMAGE_TAG
+
+      - docker push $REPOSITORY_URI:latest
+
+      - echo Updating kubeconfig...
+
+      - aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_DEFAULT_REGION
+
+      - echo Updating deployment image...
+
+      - sed -i "s|IMAGE_URI|$REPOSITORY_URI:$IMAGE_TAG|g" k8s/deployment.yaml
+
+      - echo Applying Kubernetes manifests...
+
+      - kubectl apply -f k8s/deployment.yaml
+
+      - kubectl apply -f k8s/service.yaml
+
+      - echo Waiting for rollout...
+
+      - kubectl rollout status deployment/brain-tasks-app
+
+      - echo Deployment complete!
+
+artifacts:
+  files:
+    - k8s/deployment.yaml
+    - k8s/service.yaml
+    - buildspec.yml
