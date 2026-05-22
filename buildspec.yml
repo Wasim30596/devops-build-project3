@@ -22,7 +22,10 @@ phases:
 
       - IMAGE_TAG=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
 
-      - if [ -z "$IMAGE_TAG" ]; then IMAGE_TAG=latest; fi
+      - |
+        if [ -z "$IMAGE_TAG" ]; then
+          IMAGE_TAG=latest
+        fi
 
       - echo Image tag: $IMAGE_TAG
 
