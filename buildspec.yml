@@ -16,15 +16,19 @@ phases:
 
       - REPOSITORY_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME
 
+      - echo Repository URI: $REPOSITORY_URI
+
       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $REPOSITORY_URI
 
-      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+      - IMAGE_TAG=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
 
-      - IMAGE_TAG=${COMMIT_HASH:=latest}
+      - if [ -z "$IMAGE_TAG" ]; then IMAGE_TAG=latest; fi
+
+      - echo Image tag: $IMAGE_TAG
 
   build:
     commands:
-      - echo Building the Docker image...
+      - echo Building Docker image...
 
       - docker build -t $IMAGE_REPO_NAME:$IMAGE_TAG .
 
@@ -32,9 +36,13 @@ phases:
 
       - docker tag $IMAGE_REPO_NAME:$IMAGE_TAG $REPOSITORY_URI:latest
 
+      - echo Docker images:
+
+      - docker images
+
   post_build:
     commands:
-      - echo Pushing Docker images...
+      - echo Pushing Docker images to ECR...
 
       - docker push $REPOSITORY_URI:$IMAGE_TAG
 
@@ -44,7 +52,7 @@ phases:
 
       - aws eks update-kubeconfig --name $EKS_CLUSTER_NAME --region $AWS_DEFAULT_REGION
 
-      - echo Updating deployment image...
+      - echo Replacing image URI in deployment.yaml...
 
       - sed -i "s|IMAGE_URI|$REPOSITORY_URI:$IMAGE_TAG|g" k8s/deployment.yaml
 
@@ -54,11 +62,11 @@ phases:
 
       - kubectl apply -f k8s/service.yaml
 
-      - echo Waiting for rollout...
+      - echo Waiting for deployment rollout...
 
       - kubectl rollout status deployment/brain-tasks-app
 
-      - echo Deployment complete!
+      - echo Deployment completed successfully!
 
 artifacts:
   files:
